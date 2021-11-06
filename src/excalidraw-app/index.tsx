@@ -56,8 +56,6 @@ import {
 } from "./data/localStorage";
 import CustomStats from "./CustomStats";
 import { restoreAppState, RestoredDataState } from "../data/restore";
-import { Tooltip } from "../components/Tooltip";
-import { shield } from "../components/icons";
 
 import "./index.scss";
 import { ExportToExcalidrawPlus } from "./components/ExportToExcalidrawPlus";
@@ -256,20 +254,6 @@ const initializeScene = async (opts: {
   }
   return { scene: null, isExternalScene: false };
 };
-
-const PlusLinkJSX = (
-  <p style={{ direction: "ltr", unicodeBidi: "embed" }}>
-    Introducing Excalidraw+
-    <br />
-    <a
-      href="https://plus.excalidraw.com/?utm_source=excalidraw&utm_medium=banner&utm_campaign=launch"
-      target="_blank"
-      rel="noreferrer"
-    >
-      Try out now!
-    </a>
-  </p>
-);
 
 const ExcalidrawWrapper = () => {
   const [errorMessage, setErrorMessage] = useState("");
@@ -518,44 +502,8 @@ const ExcalidrawWrapper = () => {
     }
   };
 
-  const renderTopRightUI = useCallback(
-    (isMobile: boolean, appState: AppState) => {
-      if (isMobile) {
-        return null;
-      }
-      return (
-        <div
-          style={{
-            width: "24ch",
-            fontSize: "0.7em",
-            textAlign: "center",
-          }}
-        >
-          {/* <GitHubCorner theme={appState.theme} dir={document.dir} /> */}
-          {/* FIXME remove after 2021-05-20 */}
-          {PlusLinkJSX}
-        </div>
-      );
-    },
-    [],
-  );
-
   const renderFooter = useCallback(
     (isMobile: boolean) => {
-      const renderEncryptedIcon = () => (
-        <a
-          className="encrypted-icon tooltip"
-          href="https://blog.excalidraw.com/end-to-end-encryption/"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={t("encrypted.link")}
-        >
-          <Tooltip label={t("encrypted.tooltip")} long={true}>
-            {shield}
-          </Tooltip>
-        </a>
-      );
-
       const renderLanguageList = () => (
         <LanguageList
           onChange={(langCode) => setLangCode(langCode)}
@@ -576,29 +524,13 @@ const ExcalidrawWrapper = () => {
               <legend>{t("labels.language")}</legend>
               {renderLanguageList()}
             </fieldset>
-            {/* FIXME remove after 2021-05-20 */}
-            <div
-              style={{
-                width: "24ch",
-                fontSize: "0.7em",
-                textAlign: "center",
-                marginTop: isTinyDevice ? 16 : undefined,
-                marginLeft: "auto",
-                marginRight: isTinyDevice ? "auto" : undefined,
-                padding: "4px 2px",
-                border: "1px dashed #aaa",
-                borderRadius: 12,
-              }}
-            >
-              {PlusLinkJSX}
-            </div>
           </div>
         );
       }
       return (
         <>
-          {renderEncryptedIcon()}
-          {renderLanguageList()}
+          {/* {renderEncryptedIcon()}
+          {renderLanguageList()} */}
         </>
       );
     },
@@ -658,7 +590,6 @@ const ExcalidrawWrapper = () => {
             },
           },
         }}
-        renderTopRightUI={renderTopRightUI}
         renderFooter={renderFooter}
         langCode={langCode}
         renderCustomStats={renderCustomStats}
