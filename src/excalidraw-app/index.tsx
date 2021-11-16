@@ -1,7 +1,6 @@
 import LanguageDetector from "i18next-browser-languagedetector";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { trackEvent } from "../analytics";
-import { getDefaultAppState } from "../appState";
 import { ErrorDialog } from "../components/ErrorDialog";
 import { TopErrorBoundary } from "../components/TopErrorBoundary";
 import {
@@ -14,11 +13,7 @@ import {
 } from "../constants";
 import { loadFromBlob } from "../data/blob";
 import { ImportedDataState } from "../data/types";
-import {
-  ExcalidrawElement,
-  FileId,
-  NonDeletedExcalidrawElement,
-} from "../element/types";
+import { ExcalidrawElement, FileId } from "../element/types";
 import { useCallbackRefState } from "../hooks/useCallbackRefState";
 import { Language, t } from "../i18n";
 import Excalidraw, {
@@ -49,7 +44,7 @@ import CollabWrapper, {
   CollabContextConsumer,
 } from "./collab/CollabWrapper";
 import { LanguageList } from "./components/LanguageList";
-import { exportToBackend, getCollaborationLinkData, loadScene } from "./data";
+import { getCollaborationLinkData, loadScene } from "./data";
 import {
   importFromLocalStorage,
   saveToLocalStorage,
@@ -58,7 +53,6 @@ import CustomStats from "./CustomStats";
 import { restoreAppState, RestoredDataState } from "../data/restore";
 
 import "./index.scss";
-import { ExportToExcalidrawPlus } from "./components/ExportToExcalidrawPlus";
 
 import { getMany, set, del, keys, createStore } from "idb-keyval";
 import { FileManager, updateStaleImageStatuses } from "./data/FileManager";
@@ -471,37 +465,6 @@ const ExcalidrawWrapper = () => {
     }
   };
 
-  const onExportToBackend = async (
-    exportedElements: readonly NonDeletedExcalidrawElement[],
-    appState: AppState,
-    files: BinaryFiles,
-    canvas: HTMLCanvasElement | null,
-  ) => {
-    if (exportedElements.length === 0) {
-      return window.alert(t("alerts.cannotExportEmptyCanvas"));
-    }
-    if (canvas) {
-      try {
-        await exportToBackend(
-          exportedElements,
-          {
-            ...appState,
-            viewBackgroundColor: appState.exportBackground
-              ? appState.viewBackgroundColor
-              : getDefaultAppState().viewBackgroundColor,
-          },
-          files,
-        );
-      } catch (error: any) {
-        if (error.name !== "AbortError") {
-          const { width, height } = canvas;
-          console.error(error, { width, height });
-          setErrorMessage(error.message);
-        }
-      }
-    }
-  };
-
   const renderFooter = useCallback(
     (isMobile: boolean) => {
       const renderLanguageList = () => (
@@ -567,29 +530,7 @@ const ExcalidrawWrapper = () => {
         onCollabButtonClick={collabAPI?.onCollabButtonClick}
         isCollaborating={collabAPI?.isCollaborating()}
         onPointerUpdate={collabAPI?.onPointerUpdate}
-        UIOptions={{
-          canvasActions: {
-            export: {
-              onExportToBackend,
-              renderCustomUI: (elements, appState, files) => {
-                return (
-                  <ExportToExcalidrawPlus
-                    elements={elements}
-                    appState={appState}
-                    files={files}
-                    onError={(error) => {
-                      excalidrawAPI?.updateScene({
-                        appState: {
-                          errorMessage: error.message,
-                        },
-                      });
-                    }}
-                  />
-                );
-              },
-            },
-          },
-        }}
+        UIOptions={{}}
         renderFooter={renderFooter}
         langCode={langCode}
         renderCustomStats={renderCustomStats}

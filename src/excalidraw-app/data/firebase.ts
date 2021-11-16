@@ -3,131 +3,8 @@ import { getSceneVersion } from "../../element";
 import Portal from "../collab/Portal";
 import { restoreElements } from "../../data/restore";
 import { BinaryFileData, BinaryFileMetadata, DataURL } from "../../types";
-import { FILE_CACHE_MAX_AGE_SEC } from "../app_constants";
 import { decompressData } from "../../data/encode";
-import { getImportedKey, createIV } from "../../data/encryption";
 import { MIME_TYPES } from "../../constants";
-
-// private
-// -----------------------------------------------------------------------------
-
-const FIREBASE_CONFIG = JSON.parse(process.env.REACT_APP_FIREBASE_CONFIG);
-
-let firebasePromise: Promise<typeof import("firebase/app").default> | null =
-  null;
-let firestorePromise: Promise<any> | null | true = null;
-let firebaseStoragePromise: Promise<any> | null | true = null;
-
-let isFirebaseInitialized = false;
-
-const _loadFirebase = async () => {
-  const firebase = (
-    await import(/* webpackChunkName: "firebase" */ "firebase/app")
-  ).default;
-
-  if (!isFirebaseInitialized) {
-    try {
-      firebase.initializeApp(FIREBASE_CONFIG);
-    } catch (error: any) {
-      // trying initialize again throws. Usually this is harmless, and happens
-      // mainly in dev (HMR)
-      if (error.code === "app/duplicate-app") {
-        console.warn(error.name, error.code);
-      } else {
-        throw error;
-      }
-    }
-    isFirebaseInitialized = true;
-  }
-
-  return firebase;
-};
-
-const _getFirebase = async (): Promise<
-  typeof import("firebase/app").default
-> => {
-  if (!firebasePromise) {
-    firebasePromise = _loadFirebase();
-  }
-  return firebasePromise;
-};
-
-// -----------------------------------------------------------------------------
-
-const loadFirestore = async () => {
-  const firebase = await _getFirebase();
-  if (!firestorePromise) {
-    firestorePromise = import(
-      /* webpackChunkName: "firestore" */ "firebase/firestore"
-    );
-  }
-  if (firestorePromise !== true) {
-    await firestorePromise;
-    firestorePromise = true;
-  }
-  return firebase;
-};
-
-export const loadFirebaseStorage = async () => {
-  const firebase = await _getFirebase();
-  if (!firebaseStoragePromise) {
-    firebaseStoragePromise = import(
-      /* webpackChunkName: "storage" */ "firebase/storage"
-    );
-  }
-  if (firebaseStoragePromise !== true) {
-    await firebaseStoragePromise;
-    firebaseStoragePromise = true;
-  }
-  return firebase;
-};
-
-interface FirebaseStoredScene {
-  sceneVersion: number;
-  iv: firebase.default.firestore.Blob;
-  ciphertext: firebase.default.firestore.Blob;
-}
-
-const encryptElements = async (
-  key: string,
-  elements: readonly ExcalidrawElement[],
-): Promise<{ ciphertext: ArrayBuffer; iv: Uint8Array }> => {
-  const importedKey = await getImportedKey(key, "encrypt");
-  const iv = createIV();
-  const json = JSON.stringify(elements);
-  const encoded = new TextEncoder().encode(json);
-  const ciphertext = await window.crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    importedKey,
-    encoded,
-  );
-
-  return { ciphertext, iv };
-};
-
-const decryptElements = async (
-  key: string,
-  iv: Uint8Array,
-  ciphertext: ArrayBuffer | Uint8Array,
-): Promise<readonly ExcalidrawElement[]> => {
-  const importedKey = await getImportedKey(key, "decrypt");
-  const decrypted = await window.crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv,
-    },
-    importedKey,
-    ciphertext,
-  );
-
-  const decodedData = new TextDecoder("utf-8").decode(
-    new Uint8Array(decrypted),
-  );
-  return JSON.parse(decodedData);
-};
 
 const firebaseSceneVersionCache = new WeakMap<SocketIOClient.Socket, number>();
 
@@ -152,25 +29,18 @@ export const saveFilesToFirebase = async ({
   prefix: string;
   files: { id: FileId; buffer: Uint8Array }[];
 }) => {
-  const firebase = await loadFirebaseStorage();
-
   const erroredFiles = new Map<FileId, true>();
   const savedFiles = new Map<FileId, true>();
 
   await Promise.all(
     files.map(async ({ id, buffer }) => {
       try {
-        await firebase
-          .storage()
-          .ref(`${prefix}/${id}`)
-          .put(
-            new Blob([buffer], {
-              type: MIME_TYPES.binary,
-            }),
-            {
-              cacheControl: `public, max-age=${FILE_CACHE_MAX_AGE_SEC}`,
-            },
-          );
+        await fetch("url", {
+          method: "POST",
+          body: new Blob([buffer], {
+            type: MIME_TYPES.binary,
+          }),
+        });
         savedFiles.set(id, true);
       } catch (error: any) {
         erroredFiles.set(id, true);
@@ -197,35 +67,24 @@ export const saveToFirebase = async (
     return true;
   }
 
-  const firebase = await loadFirestore();
   const sceneVersion = getSceneVersion(elements);
-  const { ciphertext, iv } = await encryptElements(roomKey, elements);
-
   const nextDocData = {
     sceneVersion,
-    ciphertext: firebase.firestore.Blob.fromUint8Array(
-      new Uint8Array(ciphertext),
-    ),
-    iv: firebase.firestore.Blob.fromUint8Array(iv),
-  } as FirebaseStoredScene;
+    data: elements,
+  };
 
-  const db = firebase.firestore();
-  const docRef = db.collection("scenes").doc(roomId);
-  const didUpdate = await db.runTransaction(async (transaction) => {
-    const doc = await transaction.get(docRef);
-    if (!doc.exists) {
-      transaction.set(docRef, nextDocData);
-      return true;
-    }
-
-    const prevDocData = doc.data() as FirebaseStoredScene;
-    if (prevDocData.sceneVersion >= nextDocData.sceneVersion) {
-      return false;
-    }
-
-    transaction.update(docRef, nextDocData);
-    return true;
-  });
+  const fetchResponse = await fetch(
+    `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(nextDocData),
+    },
+  );
+  const didUpdate = await fetchResponse.json();
 
   if (didUpdate) {
     firebaseSceneVersionCache.set(socket, sceneVersion);
@@ -239,25 +98,25 @@ export const loadFromFirebase = async (
   roomKey: string,
   socket: SocketIOClient.Socket | null,
 ): Promise<readonly ExcalidrawElement[] | null> => {
-  const firebase = await loadFirestore();
-  const db = firebase.firestore();
-
-  const docRef = db.collection("scenes").doc(roomId);
-  const doc = await docRef.get();
-  if (!doc.exists) {
+  const fetchResponse = await fetch(
+    `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
+  const doc = await fetchResponse.json();
+  if (!doc) {
     return null;
   }
-  const storedScene = doc.data() as FirebaseStoredScene;
-  const ciphertext = storedScene.ciphertext.toUint8Array();
-  const iv = storedScene.iv.toUint8Array();
-
-  const elements = await decryptElements(roomKey, iv, ciphertext);
 
   if (socket) {
-    firebaseSceneVersionCache.set(socket, getSceneVersion(elements));
+    firebaseSceneVersionCache.set(socket, getSceneVersion(doc.data));
   }
 
-  return restoreElements(elements, null);
+  return restoreElements(doc.data, null);
 };
 
 export const loadFilesFromFirebase = async (
@@ -271,9 +130,9 @@ export const loadFilesFromFirebase = async (
   await Promise.all(
     [...new Set(filesIds)].map(async (id) => {
       try {
-        const url = `https://firebasestorage.googleapis.com/v0/b/${
-          FIREBASE_CONFIG.storageBucket
-        }/o/${encodeURIComponent(prefix.replace(/^\//, ""))}%2F${id}`;
+        const url = `https://defaultmission.localhost/explorer/explorer/api/whiteboard/file/${encodeURIComponent(
+          prefix.replace(/^\//, ""),
+        )}%2F${id}`;
         const response = await fetch(`${url}?alt=media`);
         if (response.status < 400) {
           const arrayBuffer = await response.arrayBuffer();
