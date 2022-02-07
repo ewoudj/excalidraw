@@ -60,6 +60,34 @@ import { newElementWith } from "../element/mutateElement";
 import { isInitializedImageElement } from "../element/typeChecks";
 import { loadFilesFromFirebase } from "./data/firebase";
 
+const messageParent = (method: string, args: []) => {
+  window.top?.postMessage(
+    JSON.stringify({
+      method,
+      arguments: args,
+    }),
+    "*",
+  );
+};
+
+const collabKey = "excalidraw-collab";
+
+window.addEventListener("message", (e) => {
+  const message = JSON.parse(e.data);
+  if (message && message.method) {
+    switch (message.method) {
+      case "setusername":
+        const collabSettingsString =
+          localStorage.getItem(collabKey) || '{"username":""}';
+        const collabSettings = JSON.parse(collabSettingsString);
+        collabSettings.username = message.arguments[0];
+        localStorage.setItem(collabKey, JSON.stringify(collabSettings));
+    }
+  }
+});
+
+messageParent("oninitialize", []);
+
 const filesStore = createStore("files-db", "files-store");
 
 const clearObsoleteFilesFromIndexedDB = async (opts: {

@@ -14,41 +14,11 @@ export const isSavedToFirebase = (
 ): boolean => {
   if (portal.socket && portal.roomId && portal.roomKey) {
     const sceneVersion = getSceneVersion(elements);
-
     return firebaseSceneVersionCache.get(portal.socket) === sceneVersion;
   }
   // if no room exists, consider the room saved so that we don't unnecessarily
   // prevent unload (there's nothing we could do at that point anyway)
   return true;
-};
-
-export const saveFilesToFirebase = async ({
-  prefix,
-  files,
-}: {
-  prefix: string;
-  files: { id: FileId; buffer: Uint8Array }[];
-}) => {
-  const erroredFiles = new Map<FileId, true>();
-  const savedFiles = new Map<FileId, true>();
-
-  await Promise.all(
-    files.map(async ({ id, buffer }) => {
-      try {
-        await fetch("url", {
-          method: "POST",
-          body: new Blob([buffer], {
-            type: MIME_TYPES.binary,
-          }),
-        });
-        savedFiles.set(id, true);
-      } catch (error: any) {
-        erroredFiles.set(id, true);
-      }
-    }),
-  );
-
-  return { savedFiles, erroredFiles };
 };
 
 export const saveToFirebase = async (
@@ -77,6 +47,7 @@ export const saveToFirebase = async (
     `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}`,
     {
       method: "POST",
+      mode: "cors",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -84,7 +55,9 @@ export const saveToFirebase = async (
       body: JSON.stringify(nextDocData),
     },
   );
-  const didUpdate = await fetchResponse.json();
+  const text = await fetchResponse.text();
+  const obj = text ? JSON.parse(text) : null;
+  const didUpdate = obj && obj.didUpdate;
 
   if (didUpdate) {
     firebaseSceneVersionCache.set(socket, sceneVersion);
@@ -102,21 +75,53 @@ export const loadFromFirebase = async (
     `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}`,
     {
       method: "GET",
+      mode: "cors",
       headers: {
         Accept: "application/json",
       },
     },
   );
-  const doc = await fetchResponse.json();
+  const text = await fetchResponse.text();
+  const doc = text ? JSON.parse(text) : null;
   if (!doc) {
     return null;
   }
-
   if (socket) {
     firebaseSceneVersionCache.set(socket, getSceneVersion(doc.data));
   }
-
   return restoreElements(doc.data, null);
+};
+
+export const saveFilesToFirebase = async ({
+  prefix,
+  files,
+}: {
+  prefix: string;
+  files: { id: FileId; buffer: Uint8Array }[];
+}) => {
+  const erroredFiles = new Map<FileId, true>();
+  const savedFiles = new Map<FileId, true>();
+  const parts = (prefix || "").split("/");
+  const roomId = parts[parts.length - 1];
+  await Promise.all(
+    files.map(async ({ id, buffer }) => {
+      try {
+        const url = `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}/${id}`;
+        await fetch(url, {
+          method: "POST",
+          mode: "cors",
+          body: new Blob([buffer], {
+            type: MIME_TYPES.binary,
+          }),
+        });
+        savedFiles.set(id, true);
+      } catch (error: any) {
+        erroredFiles.set(id, true);
+      }
+    }),
+  );
+
+  return { savedFiles, erroredFiles };
 };
 
 export const loadFilesFromFirebase = async (
@@ -126,14 +131,15 @@ export const loadFilesFromFirebase = async (
 ) => {
   const loadedFiles: BinaryFileData[] = [];
   const erroredFiles = new Map<FileId, true>();
-
+  const parts = (prefix || "").split("/");
+  const roomId = parts[parts.length - 1];
   await Promise.all(
     [...new Set(filesIds)].map(async (id) => {
       try {
-        const url = `https://defaultmission.localhost/explorer/explorer/api/whiteboard/file/${encodeURIComponent(
-          prefix.replace(/^\//, ""),
-        )}%2F${id}`;
-        const response = await fetch(`${url}?alt=media`);
+        const url = `https://defaultmission.localhost/explorer/explorer/api/whiteboard/${roomId}/${id}`;
+        const response = await fetch(`${url}?alt=media`, {
+          mode: "cors",
+        });
         if (response.status < 400) {
           const arrayBuffer = await response.arrayBuffer();
 
